@@ -72,9 +72,14 @@ try:
                 st.info("暂无相关新闻")
         
         with tab2:
-            st.info("正在调取财务报表数据...")
-            # 这里可以根据需要添加 ak.stock_financial_report_sinker 等接口
-            st.write("提示：A 股财报数据量大，建议先关注核心指标。")
+            st.subheader("📊 核心财务指标")
+            try:
+                # 获取个股主要财务指标
+                finance_df = ak.stock_financial_abstract_ths(symbol=stock_code)
+                st.dataframe(finance_df.head(5), use_container_width=True)
+                st.caption("数据来源：同花顺")
+            except:
+                st.warning("暂时无法获取财务简报，可能该代码暂不支持。")   
 
     else:
         st.error("未找到数据，请输入正确的 6 位数字代码。")
