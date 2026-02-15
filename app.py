@@ -59,8 +59,14 @@ try:
             news = load_stock_news(stock_code)
             if not news.empty:
                 for idx, row in news.iterrows():
-                    st.write(f"**[{row['发布时间']}]** {row['新闻标题']}")
-                    st.caption(f"链接: {row['文章链接']}")
+                    # 使用 .get() 方法，如果找不到字段就显示“无”，避免程序崩溃
+                    title = row.get('新闻标题', '无标题')
+                    time = row.get('发布时间', '未知时间')
+                    url = row.get('文章链接', row.get('url', '#')) # 尝试匹配不同的链接字段名
+                    
+                    st.write(f"**[{time}]** {title}")
+                    if url != '#':
+                        st.caption(f"[查看原文]({url})")
                     st.divider()
             else:
                 st.info("暂无相关新闻")
