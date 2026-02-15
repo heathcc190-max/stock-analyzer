@@ -28,8 +28,12 @@ try:
         delta = ((last_price - prev_price) / prev_price) * 100
         
         col1, col2, col3 = st.columns(3)
-        col1.metric("最新价格", f"{last_price:.2f}", f"{delta:.2f}%")
-        col2.metric("当日成交量", f"{df['Volume'].iloc[-1]:,}")
+        # 将数据显式转换为浮点数，避免格式化错误
+        current_price = float(last_price)
+        change_percent = float(delta)
+        last_volume = int(df['Volume'].iloc[-1])
+        col1.metric("最新价格", f"{current_price:.2f}", f"{change_percent:.2f}%")
+        col2.metric("当日成交量", f"{last_volume:,}")
         col3.metric("市场范围", "美股/港股/A股(雅虎源)")
 
         # K线图
