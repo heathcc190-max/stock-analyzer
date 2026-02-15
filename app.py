@@ -72,14 +72,19 @@ try:
                 st.info("暂无相关新闻")
         
         with tab2:
-            st.subheader("📊 核心财务指标")
+            st.subheader("📊 核心财务指标 (最新)")
             try:
                 # 获取个股主要财务指标
                 finance_df = ak.stock_financial_abstract_ths(symbol=stock_code)
-                st.dataframe(finance_df.head(5), use_container_width=True)
-                st.caption("数据来源：同花顺")
-            except:
-                st.warning("暂时无法获取财务简报，可能该代码暂不支持。")   
+                
+                # --- 关键修改点：将表格倒序，让最新日期排在第一行 ---
+                finance_df = finance_df.iloc[::-1].reset_index(drop=True)
+                
+                # 显示前 10 条（即最近 10 个报告期）
+                st.dataframe(finance_df.head(10), use_container_width=True)
+                st.caption("数据来源：同花顺 | 提示：已为您自动置顶最新财报数据")
+            except Exception as e:
+                st.warning(f"暂时无法获取最新财务指标: {e}")
 
     else:
         st.error("未找到数据，请输入正确的 6 位数字代码。")
