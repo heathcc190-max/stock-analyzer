@@ -1,92 +1,127 @@
 import streamlit as st
 import akshare as ak
 import pandas as pd
-import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
-# 页面配置
-st.set_page_config(page_title="专业 A 股分析助手", layout="wide")
+# --- 1. 基础配置与样式 ---
+st.set_page_config(page_title="AI 股票主线与龙头 PK 看板", layout="wide")
 
-st.title("📊 专业 A 股行情分析看板")
+st.markdown("""
+    <style>
+    .main { background-color: #f5f7f9; }
+    .stMetric { background-color: #ffffff; padding: 10px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    </style>
+    """, unsafe_allow_html=True)
 
-# 侧边栏输入
-st.sidebar.header("查询参数")
-stock_code = st.sidebar.text_input("请输入 A 股代码 (如: 600519)", "600519")
+# --- 2. 核心数据引擎 ---
 
-@st.cache_data(ttl=600)  # 缓存10分钟
-def load_stock_data(code):
-    # 获取个股历史行情 (东财接口)
-    df = ak.stock_zh_a_hist(symbol=code, period="daily", start_date="20230101", adjust="qfq")
-    df['日期'] = pd.to_datetime(df['日期'])
-    return df
-
-@st.cache_data(ttl=3600)
-def load_stock_news(code):
-    # 获取个股新闻
+@st.cache_data(ttl=600)
+def get_market_mainline():
+    """模块 A: 发现主线 (量价双驱模型)"""
     try:
-        news_df = ak.stock_news_em(symbol=code)
-        return news_df.head(10)
+        df = ak.stock_board_industry_name_em()
+        # 计算吸金率 (成交额占比 / 市值占比的简化版)
+        total_vol = df['成交额'].sum()
+        df['吸金率'] = (df['成交额'] / total_vol * 100).round(2)
+        # 综合热度：成交额与换手率的乘积，识别真正活跃的板块
+        df['综合热度'] = (df['成交额'] / 1e8 * df['换手率']).round(2)
+        # 筛选涨幅 > 0 的正向主线
+        return df[df['涨跌幅'] > 0].sort_values("综合热度", ascending=False).head(15)
     except:
         return pd.DataFrame()
 
-try:
-    # 1. 加载数据
-    df = load_stock_data(stock_code)
+@st.cache_data(ttl=600)
+def get_dragon_leaderboard():
+    """模块 C: 龙头 PK 台 (连板 > 涨幅 > 封板强度)"""
+    try:
+        # 自动获取最近一个交易日的涨停数据
+        target_date = datetime.now()
+        if target_date.weekday() == 5: target_date -= timedelta(days=1)
+        elif target_date.weekday() == 6: target_date -= timedelta(days=2)
+        
+        df = ak.stock_zt_pool_em(date=target_date.strftime("%Y%m%d"))
+        if not df.empty:
+            # 量化封板强度：封单资金 / 成交额
+            df['封板强度'] = (df['封单资金'] / df['成交额'] * 100).round(2)
+            # 严格按照 PRD 排序逻辑
+            df = df.sort_values(
+                by=['连板数', '涨跌幅', '封板强度', '最后封板时间'], 
+                ascending=[False, False, False, True]
+            )
+            return df
+        return pd.DataFrame()
+    except:
+        return pd.DataFrame()
+
+def get_global_mapping(sector_name):
+    """模块 B: 全球映射字典"""
+    mapping_dict = {
+        "半导体": ["NVDA (英伟达)", "TSM (台积电)", "ASML (阿斯麦)"],
+        "互联网服务": ["GOOG (谷歌)", "META (脸书)", "0700.HK (腾讯)"],
+        "汽车整车": ["TSLA (特斯拉)", "9868.HK (小鹏)", "1211.HK (比亚迪)"],
+        "软件开发": ["MSFT (微软)", "ORCL (甲骨文)"],
+        "通信设备": ["AVGO (博通)", "CSCO (思科)", "COHR (相干)"],
+        "消费电子": ["AAPL (苹果)", "1810.HK (小米)"]
+    }
+    return mapping_dict.get(sector_name, ["暂无直接映射，建议关注纳斯达克100指数 (QQQ)"])
+
+# --- 3. 界面布局渲染 ---
+
+st.title("🚀 A 股主线与龙头强度深度看板")
+st.caption(f"数据更新：{datetime.now().strftime('%Y-%m-%d %H:%M')} | 核心逻辑：放量活跃 + 连板高度身位")
+
+tab1, tab2 = st.tabs(["🔥 市场主线与全球映射", "🐲 龙头强度 PK 台"])
+
+with tab1:
+    col_main, col_map = st.columns([2, 1])
     
-    if not df.empty:
-        # 2. 顶部指标卡片
-        last_row = df.iloc[-1]
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("最新价格", f"{last_row['收盘']}")
-        col2.metric("涨跌幅", f"{last_row['涨跌幅']}%")
-        col3.metric("成交量 (手)", f"{last_row['成交量']:,}")
-        col4.metric("成交额 (元)", f"{last_row['成交额']:,}")
+    with col_main:
+        st.subheader("今日吸金活跃板块")
+        m_df = get_market_mainline()
+        if not m_df.empty:
+            st.dataframe(
+                m_df[['板块名称', '涨跌幅', '成交额', '换手率', '吸金率']].style.background_gradient(subset=['吸金率'], cmap='Greens'),
+                use_container_width=True, height=450
+            )
+            # 选定板块触发映射
+            selected_sector = st.selectbox("选择下方板块，查看全球联动逻辑：", m_df['板块名称'].tolist())
+        else:
+            st.warning("暂未获取到主线数据。")
 
-        # 3. K线图
-        fig = go.Figure(data=[go.Candlestick(
-            x=df['日期'],
-            open=df['开盘'], high=df['最高'],
-            low=df['最低'], close=df['收盘'],
-            name='K线'
-        )])
-        fig.update_layout(title=f"股票 {stock_code} 历史行情", xaxis_rangeslider_visible=False)
-        st.plotly_chart(fig, use_container_width=True)
+    with col_map:
+        st.subheader("🌎 全球映射映射")
+        if 'selected_sector' in locals():
+            targets = get_global_mapping(selected_sector)
+            st.success(f"当 **{selected_sector}** 走强时，外盘关键映射：")
+            for t in targets:
+                st.write(f"🔗 {t}")
+            st.divider()
+            st.caption("提示：美港股通常在走势上对 A 股有情绪引导或逻辑映射作用。")
 
-        # 4. 财经新闻与基本面
-        tab1, tab2 = st.tabs(["🔥 相关新闻", "📑 财务简报"])
-        
-        with tab1:
-            news = load_stock_news(stock_code)
-            if not news.empty:
-                for idx, row in news.iterrows():
-                    # 使用 .get() 方法，如果找不到字段就显示“无”，避免程序崩溃
-                    title = row.get('新闻标题', '无标题')
-                    time = row.get('发布时间', '未知时间')
-                    url = row.get('文章链接', row.get('url', '#')) # 尝试匹配不同的链接字段名
-                    
-                    st.write(f"**[{time}]** {title}")
-                    if url != '#':
-                        st.caption(f"[查看原文]({url})")
-                    st.divider()
-            else:
-                st.info("暂无相关新闻")
-        
-        with tab2:
-            st.subheader("📊 核心财务指标 (最新)")
-            try:
-                # 获取个股主要财务指标
-                finance_df = ak.stock_financial_abstract_ths(symbol=stock_code)
-                
-                # --- 关键修改点：将表格倒序，让最新日期排在第一行 ---
-                finance_df = finance_df.iloc[::-1].reset_index(drop=True)
-                
-                # 显示前 10 条（即最近 10 个报告期）
-                st.dataframe(finance_df.head(10), use_container_width=True)
-                st.caption("数据来源：同花顺 | 提示：已为您自动置顶最新财报数据")
-            except Exception as e:
-                st.warning(f"暂时无法获取最新财务指标: {e}")
-
+with tab2:
+    st.subheader("个股 PK：身位与封板硬度")
+    d_df = get_dragon_leaderboard()
+    if not d_df.empty:
+        # 只显示核心对比维度
+        display_cols = ['代码', '名称', '连板数', '涨跌幅', '封板强度', '最后封板时间', '换手率']
+        st.dataframe(
+            d_df[display_cols].style.highlight_max(subset=['连板数'], color='#ff4b4b'),
+            use_container_width=True, height=600
+        )
+        # 下载报表
+        csv = d_df[display_cols].to_csv(index=False).encode('utf-8-sig')
+        st.download_button("📥 下载龙头复盘报表 (CSV)", csv, "dragon_list.csv")
     else:
-        st.error("未找到数据，请输入正确的 6 位数字代码。")
-except Exception as e:
-    st.error(f"发生错误: {e}")
+        st.info("当前时间点无涨停数据或市场未开盘。")
+
+# --- 4. 侧边栏说明 ---
+st.sidebar.header("📊 PRD 逻辑背书")
+st.sidebar.info("""
+**1. 模块 A (主线)** 寻找成交额异常放大、换手频繁且吸金率高的板块。
+
+**2. 模块 B (映射)** 自动联想美股/港股对标标的。
+
+**3. 模块 C (龙头)** - 优先：连板高度 (身位)
+- 其次：区间涨幅 (动能)
+- 最终：封板强度 (封单比)
+""")
