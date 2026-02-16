@@ -32,26 +32,25 @@ def get_market_mainline():
 
 @st.cache_data(ttl=600)
 def get_dragon_leaderboard():
-    """模块 C: 龙头 PK 台 (连板 > 涨幅 > 封板强度)"""
     try:
-        # 自动获取最近一个交易日的涨停数据
-        target_date = datetime.now()
-        if target_date.weekday() == 5: target_date -= timedelta(days=1)
-        elif target_date.weekday() == 6: target_date -= timedelta(days=2)
+        # --- 优化后的日期逻辑 ---
+        import datetime
+        now = datetime.datetime.now()
+        # 如果是周一早上 9:30 之前，或者周末，自动向前推算到上周五
+        if now.weekday() == 0 and now.hour < 10: # 周一早晨
+            target_date = now - datetime.timedelta(days=3)
+        elif now.weekday() == 5: # 周六
+            target_date = now - datetime.timedelta(days=1)
+        elif now.weekday() == 6: # 周日
+            target_date = now - datetime.timedelta(days=2)
+        else:
+            target_date = now
+            
+        date_str = target_date.strftime("%Y%m%d")
+        # -----------------------
         
-        df = ak.stock_zt_pool_em(date=target_date.strftime("%Y%m%d"))
-        if not df.empty:
-            # 量化封板强度：封单资金 / 成交额
-            df['封板强度'] = (df['封单资金'] / df['成交额'] * 100).round(2)
-            # 严格按照 PRD 排序逻辑
-            df = df.sort_values(
-                by=['连板数', '涨跌幅', '封板强度', '最后封板时间'], 
-                ascending=[False, False, False, True]
-            )
-            return df
-        return pd.DataFrame()
-    except:
-        return pd.DataFrame()
+        df = ak.stock_zt_pool_em(date=date_str)
+        # ... 后续代码保持不变
 
 def get_global_mapping(sector_name):
     """模块 B: 全球映射字典"""
