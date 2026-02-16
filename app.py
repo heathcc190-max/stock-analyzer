@@ -32,12 +32,12 @@ def get_market_mainline():
 
 @st.cache_data(ttl=600)
 def get_dragon_leaderboard():
+    """模块 C: 龙头 PK 台 (修正日期与语法逻辑)"""
     try:
-        # --- 优化后的日期逻辑 ---
         import datetime
         now = datetime.datetime.now()
-        # 如果是周一早上 9:30 之前，或者周末，自动向前推算到上周五
-        if now.weekday() == 0 and now.hour < 10: # 周一早晨
+        # 如果是周一早上 10:00 之前，或者周末，自动向前推算到上周五
+        if now.weekday() == 0 and now.hour < 10: 
             target_date = now - datetime.timedelta(days=3)
         elif now.weekday() == 5: # 周六
             target_date = now - datetime.timedelta(days=1)
@@ -47,10 +47,23 @@ def get_dragon_leaderboard():
             target_date = now
             
         date_str = target_date.strftime("%Y%m%d")
-        # -----------------------
         
+        # 获取涨停池数据
         df = ak.stock_zt_pool_em(date=date_str)
-        # ... 后续代码保持不变
+        
+        if not df.empty:
+            # 补全计算逻辑：封板强度 (封单资金/成交额)
+            df['封板强度'] = (df['封单资金'] / df['成交额'] * 100).round(2)
+            # 排序：连板数 > 涨幅 > 封板强度 > 时间
+            df = df.sort_values(
+                by=['连板数', '涨跌幅', '封板强度', '最后封板时间'], 
+                ascending=[False, False, False, True]
+            )
+            return df
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"龙头数据获取失败: {e}")
+        return pd.DataFrame()
 
 def get_global_mapping(sector_name):
     """模块 B: 全球映射字典"""
@@ -82,13 +95,12 @@ with tab1:
                 m_df[['板块名称', '涨跌幅', '成交额', '换手率', '吸金率']].style.background_gradient(subset=['吸金率'], cmap='Greens'),
                 use_container_width=True, height=450
             )
-            # 选定板块触发映射
             selected_sector = st.selectbox("选择下方板块，查看全球联动逻辑：", m_df['板块名称'].tolist())
         else:
             st.warning("暂未获取到主线数据。")
 
     with col_map:
-        st.subheader("🌎 全球映射映射")
+        st.subheader("🌎 全球映射")
         if 'selected_sector' in locals():
             targets = get_global_mapping(selected_sector)
             st.success(f"当 **{selected_sector}** 走强时，外盘关键映射：")
@@ -101,17 +113,15 @@ with tab2:
     st.subheader("个股 PK：身位与封板硬度")
     d_df = get_dragon_leaderboard()
     if not d_df.empty:
-        # 只显示核心对比维度
         display_cols = ['代码', '名称', '连板数', '涨跌幅', '封板强度', '最后封板时间', '换手率']
         st.dataframe(
             d_df[display_cols].style.highlight_max(subset=['连板数'], color='#ff4b4b'),
             use_container_width=True, height=600
         )
-        # 下载报表
         csv = d_df[display_cols].to_csv(index=False).encode('utf-8-sig')
         st.download_button("📥 下载龙头复盘报表 (CSV)", csv, "dragon_list.csv")
     else:
-        st.info("当前时间点无涨停数据或市场未开盘。")
+        st.info("当前日期无涨停数据（可能是非交易日或接口延迟）。")
 
 # --- 4. 侧边栏说明 ---
 st.sidebar.header("📊 PRD 逻辑背书")
